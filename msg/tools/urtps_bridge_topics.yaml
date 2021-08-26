@@ -89,3 +89,10 @@ rtps:
     send:    true
   - msg:     sensor_combined
     send:    true
+  - msg:     actuator_controls
+    send:    true
+    receive: true
+  - msg:     actuator_controls_0
+    base:    actuator_controls
+    send:    true
+    receive: true
