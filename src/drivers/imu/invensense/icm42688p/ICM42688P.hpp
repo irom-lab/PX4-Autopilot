@@ -75,7 +75,7 @@ private:
 	static constexpr float ACCEL_RATE{1e6f / FIFO_SAMPLE_DT};
 
 	// maximum FIFO samples per transfer is limited to the size of sensor_accel_fifo/sensor_gyro_fifo
-	static constexpr int32_t FIFO_MAX_SAMPLES{math::min(math::min(FIFO::SIZE / sizeof(FIFO::DATA), sizeof(sensor_gyro_fifo_s::x) / sizeof(sensor_gyro_fifo_s::x[0])), sizeof(sensor_accel_fifo_s::x) / sizeof(sensor_accel_fifo_s::x[0]) * (int)(GYRO_RATE / ACCEL_RATE))};
+	static constexpr int32_t FIFO_MAX_SAMPLES{math::min(FIFO::SIZE / sizeof(FIFO::DATA), sizeof(sensor_gyro_fifo_s::x) / sizeof(sensor_gyro_fifo_s::x[0]), sizeof(sensor_accel_fifo_s::x) / sizeof(sensor_accel_fifo_s::x[0]) * (int)(GYRO_RATE / ACCEL_RATE))};
 
 	// Transfer data
 	struct FIFOTransferBuffer {
@@ -114,7 +114,7 @@ private:
 	void ConfigureSampleRate(int sample_rate);
 	void ConfigureFIFOWatermark(uint8_t samples);
 
-	void SelectRegisterBank(enum REG_BANK_SEL_BIT bank);
+	void SelectRegisterBank(enum REG_BANK_SEL_BIT bank, bool force = false);
 	void SelectRegisterBank(Register::BANK_0 reg) { SelectRegisterBank(REG_BANK_SEL_BIT::USER_BANK_0); }
 	void SelectRegisterBank(Register::BANK_1 reg) { SelectRegisterBank(REG_BANK_SEL_BIT::USER_BANK_1); }
 	void SelectRegisterBank(Register::BANK_2 reg) { SelectRegisterBank(REG_BANK_SEL_BIT::USER_BANK_2); }
@@ -194,13 +194,13 @@ private:
 	static constexpr uint8_t size_register_bank1_cfg{1};
 	register_bank1_config_t _register_bank1_cfg[size_register_bank1_cfg] {
 		// Register                              | Set bits, Clear bits
-		{ Register::BANK_1::GYRO_CONFIG_STATIC2,  0, GYRO_CONFIG_STATIC2_BIT::GYRO_AAF_DIS | GYRO_CONFIG_STATIC2_BIT::GYRO_NF_DIS },
+		{ Register::BANK_1::GYRO_CONFIG_STATIC2,  GYRO_CONFIG_STATIC2_BIT::GYRO_AAF_DIS | GYRO_CONFIG_STATIC2_BIT::GYRO_NF_DIS, 0 },
 	};
 
 	uint8_t _checked_register_bank2{0};
 	static constexpr uint8_t size_register_bank2_cfg{1};
 	register_bank2_config_t _register_bank2_cfg[size_register_bank2_cfg] {
 		// Register                              | Set bits, Clear bits
-		{ Register::BANK_2::ACCEL_CONFIG_STATIC2, 0, ACCEL_CONFIG_STATIC2_BIT::ACCEL_AAF_DIS },
+		{ Register::BANK_2::ACCEL_CONFIG_STATIC2, ACCEL_CONFIG_STATIC2_BIT::ACCEL_AAF_DIS, 0 },
 	};
 };

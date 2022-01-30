@@ -179,11 +179,6 @@
 	 (1 << ADC_HW_REV_SENSE_CHANNEL)           | \
 	 (1 << ADC1_SPARE_1_CHANNEL))
 
-/* Define Battery 1 Voltage Divider and A per V */
-
-#define BOARD_BATTERY1_V_DIV         (10.1097f)     /* measured with the provided PM board */
-#define BOARD_BATTERY1_A_PER_V       (15.391030303f)
-
 /* HW has to large of R termination on ADC todo:change when HW value is chosen */
 
 #define BOARD_ADC_OPEN_CIRCUIT_V     (5.6f)
@@ -241,7 +236,7 @@
 
 // Input Capture not supported on MVP
 
-#define DIRECT_INPUT_TIMER_CHANNELS  0
+#define BOARD_HAS_NO_CAPTURE
 
 //#define BOARD_HAS_UI_LED_PWM           1  Not ported yet (Still Kinetis driver)
 #define BOARD_HAS_LED_PWM              1
@@ -391,7 +386,6 @@
 #define BOARD_ADC_PERIPH_5V_OC  (!px4_arch_gpioread(GPIO_nVDD_5V_PERIPH_OC))
 #define BOARD_ADC_HIPOWER_5V_OC (!px4_arch_gpioread(GPIO_nVDD_5V_HIPOWER_OC))
 
-#define BOARD_HAS_PWM  DIRECT_PWM_OUTPUT_CHANNELS
 
 /* This board provides a DMA pool and APIs */
 #define BOARD_DMA_ALLOC_POOL_SIZE 5120

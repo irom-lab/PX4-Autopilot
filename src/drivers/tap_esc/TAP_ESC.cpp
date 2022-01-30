@@ -36,7 +36,7 @@
 TAP_ESC::TAP_ESC(char const *const device, uint8_t channels_count):
 	CDev(TAP_ESC_DEVICE_PATH),
 	OutputModuleInterface(MODULE_NAME, px4::serial_port_to_wq(device)),
-	_mixing_output{channels_count, *this, MixingOutput::SchedulingPolicy::Auto, true},
+	_mixing_output{"TAP_ESC", channels_count, *this, MixingOutput::SchedulingPolicy::Auto, true},
 	_channels_count(channels_count)
 {
 	strncpy(_device, device, sizeof(_device) - 1);
@@ -297,7 +297,7 @@ bool TAP_ESC::updateOutputs(bool stop_motors, uint16_t outputs[MAX_ACTUATORS], u
 					_esc_feedback.esc[feed_back_data.channelID].esc_current = feed_back_data.current;
 #endif // ESC_HAVE_CURRENT_SENSOR
 #if defined(ESC_HAVE_TEMPERATURE_SENSOR)
-					_esc_feedback.esc[feed_back_data.channelID].esc_temperature = feed_back_data.temperature;
+					_esc_feedback.esc[feed_back_data.channelID].esc_temperature = static_cast<float>(feed_back_data.temperature);
 #endif // ESC_HAVE_TEMPERATURE_SENSOR
 					_esc_feedback.esc[feed_back_data.channelID].esc_state = feed_back_data.ESCStatus;
 					_esc_feedback.esc[feed_back_data.channelID].failures = 0;
@@ -365,31 +365,26 @@ void TAP_ESC::Run()
 			if (_tune_control_sub.copy(&tune)) {
 				if (tune.timestamp > 0) {
 					Tunes::ControlResult result = _tunes.set_control(tune);
-					_play_tone = (result == Tunes::ControlResult::Success) || (result == Tunes::ControlResult::AlreadyPlaying);
-					PX4_DEBUG("new tune id: %d, result: %d, play: %d", tune.tune_id, (int)result, _play_tone);
+					PX4_DEBUG("new tune id: %d, result: %d, duration: %lu", tune.tune_id, (int)result, tune.duration);
 				}
 			}
 		}
 
 		const hrt_abstime timestamp_now = hrt_absolute_time();
 
-		if ((timestamp_now - _interval_timestamp <= _duration) || !_play_tone) {
-			//return;
-		} else {
+		if ((timestamp_now - _interval_timestamp > _duration)) {
 			_interval_timestamp = timestamp_now;
 
 			if (_silence_length > 0) {
 				_duration = _silence_length;
 				_silence_length = 0;
 
-			} else if (_play_tone) {
+			} else {
 				uint8_t strength = 0;
 				Tunes::Status parse_ret_val = _tunes.get_next_note(_frequency, _duration, _silence_length, strength);
 
 				if (parse_ret_val == Tunes::Status::Continue) {
 					// Continue playing.
-					_play_tone = true;
-
 					if (_frequency > 0) {
 						// Start playing the note.
 						EscbusTunePacket esc_tune_packet{};
@@ -400,7 +395,6 @@ void TAP_ESC::Run()
 					}
 
 				} else {
-					_play_tone = false;
 					_silence_length = 0;
 				}
 			}

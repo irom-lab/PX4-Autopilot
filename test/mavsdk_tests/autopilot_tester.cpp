@@ -143,6 +143,22 @@ void AutopilotTester::set_height_source(AutopilotTester::HeightSource height_sou
 	}
 }
 
+void AutopilotTester::set_rc_loss_exception(AutopilotTester::RcLossException mask)
+{
+	switch (mask) {
+	case RcLossException::Mission:
+		CHECK(_param->set_param_int("COM_RCL_EXCEPT", 1 << 0) == Param::Result::Success);
+		break;
+
+	case RcLossException::Hold:
+		CHECK(_param->set_param_int("COM_RCL_EXCEPT", 1 << 1) == Param::Result::Success);
+		break;
+
+	case RcLossException::Offboard:
+		CHECK(_param->set_param_int("COM_RCL_EXCEPT", 1 << 2) == Param::Result::Success);
+	}
+}
+
 void AutopilotTester::arm()
 {
 	const auto result = _action->arm();
@@ -220,7 +236,9 @@ void AutopilotTester::execute_mission()
 	std::promise<void> prom;
 	auto fut = prom.get_future();
 
-	REQUIRE(_mission->start_mission() == Mission::Result::Success);
+
+	REQUIRE(poll_condition_with_timeout(
+	[this]() { return _mission->start_mission() == Mission::Result::Success; }, std::chrono::seconds(3)));
 
 	// TODO: Adapt time limit based on mission size, flight speed, sim speed factor, etc.
 
@@ -684,7 +702,7 @@ void AutopilotTester::report_speed_factor()
 					std::cout << " (set: " << speed_factor.value() << ')';
 				}
 
-				std::cout << '\n';
+				std::cout << std::endl;
 			}
 		}
 

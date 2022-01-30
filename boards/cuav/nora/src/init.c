@@ -60,6 +60,8 @@
 #include <px4_platform/gpio.h>
 #include <px4_platform/board_dma_alloc.h>
 
+#include <mpu.h>
+
 __BEGIN_DECLS
 extern void led_init(void);
 extern void led_on(int led);
@@ -199,12 +201,10 @@ __EXPORT int board_app_initialize(uintptr_t arg)
 
 	if (!sdio_dev) {
 		syslog(LOG_ERR, "[boot] Failed to initialize SDIO slot %d\n", 0);
-		return ERROR;
 	}
 
 	if (mmcsd_slotinitialize(0, sdio_dev) != OK) {
 		syslog(LOG_ERR, "[boot] Failed to bind SDIO to the MMC/SD driver\n");
-		return ERROR;
 	}
 
 	/* Assume that the SD card is inserted.  What choice do we have? */
