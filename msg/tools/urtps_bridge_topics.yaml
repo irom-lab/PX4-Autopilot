@@ -28,17 +28,6 @@
 rtps:
   - msg:     offboard_control_mode
     receive: true
-<<<<<<< HEAD
-=======
-  - msg:     sensor_optical_flow
-    receive: true
-  - msg:     position_setpoint
-    receive: true
-  - msg:     position_setpoint_triplet
-    receive: true
-  - msg:     telemetry_status
-    receive: true
->>>>>>> 7f76761657bafd8b955e6b559932e750c5391975
   - msg:     timesync
     receive: true
     send:    true
