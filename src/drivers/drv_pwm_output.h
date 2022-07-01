@@ -87,6 +87,11 @@ struct pwm_output_values {
 #define PWM_MOTOR_OFF	900
 
 /**
+ * Default value for a servo stop
+ */
+#define PWM_SERVO_STOP	1500
+
+/**
  * Default minimum PWM in us
  */
 #define PWM_DEFAULT_MIN 1000
@@ -188,12 +193,6 @@ typedef uint16_t	servo_position_t;
 /** get the maximum PWM value the output will send */
 #define PWM_SERVO_GET_MAX_PWM	_PX4_IOC(_PWM_SERVO_BASE, 19)
 
-/** force safety switch off (to disable use of safety switch) */
-#define PWM_SERVO_SET_FORCE_SAFETY_OFF		_PX4_IOC(_PWM_SERVO_BASE, 25)
-
-/** force safety switch on (to enable use of safety switch) */
-#define PWM_SERVO_SET_FORCE_SAFETY_ON		_PX4_IOC(_PWM_SERVO_BASE, 28)
-
 /*
  *
  *
@@ -241,7 +240,7 @@ typedef enum {
 	DShot_cmd_led4_off,     // BLHeli32 only
 	DShot_cmd_audio_stream_mode_on_off              = 30, // KISS audio Stream mode on/off
 	DShot_cmd_silent_mode_on_off                    = 31, // KISS silent Mode on/off
-	DShot_cmd_signal_line_telemeetry_disable        = 32,
+	DShot_cmd_signal_line_telemetry_disable         = 32,
 	DShot_cmd_signal_line_continuous_erpm_telemetry = 33,
 	DShot_cmd_MAX          = 47,     // >47 are throttle values
 	DShot_cmd_MIN_throttle = 48,

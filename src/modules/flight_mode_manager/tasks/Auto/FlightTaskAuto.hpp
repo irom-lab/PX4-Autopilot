@@ -46,6 +46,7 @@
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/vehicle_status.h>
 #include <lib/geo/geo.h>
+#include <lib/weather_vane/WeatherVane.hpp>
 #include <lib/mathlib/math/filter/AlphaFilter.hpp>
 #include <lib/motion_planning/PositionSmoothing.hpp>
 #include "Sticks.hpp"
@@ -84,18 +85,14 @@ enum class State {
 class FlightTaskAuto : public FlightTask
 {
 public:
-	FlightTaskAuto();
-
+	FlightTaskAuto() = default;
 	virtual ~FlightTaskAuto() = default;
-	bool activate(const vehicle_local_position_setpoint_s &last_setpoint) override;
+	bool activate(const trajectory_setpoint_s &last_setpoint) override;
 	void reActivate() override;
 	bool updateInitialize() override;
 	bool update() override;
 
-	/**
-	 * Sets an external yaw handler which can be used to implement a different yaw control strategy.
-	 */
-	void setYawHandler(WeatherVane *ext_yaw_handler) override {_ext_yaw_handler = ext_yaw_handler;}
+	void overrideCruiseSpeed(const float cruise_speed_m_s) override;
 
 protected:
 	matrix::Vector2f _getTargetVelocityXY(); /**< only used for follow-me and only here because of legacy reason.*/
@@ -128,7 +125,7 @@ protected:
 	matrix::Vector3f _target{}; /**< Target waypoint  (local frame).*/
 	matrix::Vector3f _next_wp{}; /**< The next waypoint after target (local frame). If no next setpoint is available, next is set to target. */
 	bool _next_was_valid{false};
-	float _mc_cruise_speed{0.0f}; /**< Requested cruise speed. If not valid, default cruise speed is used. */
+	float _mc_cruise_speed{NAN}; /**< Requested cruise speed. If not valid, default cruise speed is used. */
 	WaypointType _type{WaypointType::idle}; /**< Type of current target triplet. */
 
 	uORB::SubscriptionData<home_position_s>			_sub_home_position{ORB_ID(home_position)};
@@ -142,12 +139,12 @@ protected:
 	AlphaFilter<float> _yawspeed_filter;
 	bool _yaw_sp_aligned{false};
 
-	ObstacleAvoidance _obstacle_avoidance; /**< class adjusting setpoints according to external avoidance module's input */
+	ObstacleAvoidance _obstacle_avoidance{this}; /**< class adjusting setpoints according to external avoidance module's input */
 
 	PositionSmoothing _position_smoothing;
 	Vector3f _unsmoothed_velocity_setpoint;
-	Sticks _sticks;
-	StickAccelerationXY _stick_acceleration_xy;
+	Sticks _sticks{this};
+	StickAccelerationXY _stick_acceleration_xy{this};
 	StickYaw _stick_yaw;
 	matrix::Vector3f _land_position;
 	float _land_heading;
@@ -163,7 +160,6 @@ protected:
 					(ParamInt<px4::params::COM_OBS_AVOID>) _param_com_obs_avoid, // obstacle avoidance active
 					(ParamFloat<px4::params::MPC_YAWRAUTO_MAX>) _param_mpc_yawrauto_max,
 					(ParamFloat<px4::params::MIS_YAW_ERR>) _param_mis_yaw_err, // yaw-error threshold
-					(ParamBool<px4::params::WV_EN>) _param_wv_en, // enable/disable weather vane (VTOL)
 					(ParamFloat<px4::params::MPC_ACC_HOR>) _param_mpc_acc_hor, // acceleration in flight
 					(ParamFloat<px4::params::MPC_ACC_UP_MAX>) _param_mpc_acc_up_max,
 					(ParamFloat<px4::params::MPC_ACC_DOWN_MAX>) _param_mpc_acc_down_max,
@@ -171,11 +167,14 @@ protected:
 					(ParamFloat<px4::params::MPC_XY_TRAJ_P>) _param_mpc_xy_traj_p,
 					(ParamFloat<px4::params::MPC_XY_ERR_MAX>) _param_mpc_xy_err_max,
 					(ParamFloat<px4::params::MPC_LAND_SPEED>) _param_mpc_land_speed,
+					(ParamFloat<px4::params::MPC_LAND_CRWL>) _param_mpc_land_crawl_speed,
 					(ParamInt<px4::params::MPC_LAND_RC_HELP>) _param_mpc_land_rc_help,
 					(ParamFloat<px4::params::MPC_LAND_ALT1>)
-					_param_mpc_land_alt1, // altitude at which speed limit downwards reaches maximum speed
+					_param_mpc_land_alt1, // altitude at which we start ramping down speed
 					(ParamFloat<px4::params::MPC_LAND_ALT2>)
-					_param_mpc_land_alt2, // altitude at which speed limit downwards reached minimum speed
+					_param_mpc_land_alt2, // altitude at which we descend at land speed
+					(ParamFloat<px4::params::MPC_LAND_ALT3>)
+					_param_mpc_land_alt3, // altitude where we switch to crawl speed, if LIDAR available
 					(ParamFloat<px4::params::MPC_Z_V_AUTO_UP>) _param_mpc_z_v_auto_up,
 					(ParamFloat<px4::params::MPC_Z_V_AUTO_DN>) _param_mpc_z_v_auto_dn,
 					(ParamFloat<px4::params::MPC_TKO_SPEED>) _param_mpc_tko_speed,
@@ -198,12 +197,13 @@ private:
 	_triplet_next_wp; /**< next triplet from navigator which may differ from the intenal one (_next_wp) depending on the vehicle state.*/
 	matrix::Vector3f _closest_pt; /**< closest point to the vehicle position on the line previous - target */
 
+	hrt_abstime _time_last_cruise_speed_override{0}; ///< timestamp the cruise speed was last time overriden using DO_CHANGE_SPEED
+
 	MapProjection _reference_position{}; /**< Class used to project lat/lon setpoint into local frame. */
 	float _reference_altitude{NAN}; /**< Altitude relative to ground. */
 	hrt_abstime _time_stamp_reference{0}; /**< time stamp when last reference update occured. */
 
-	WeatherVane *_ext_yaw_handler{nullptr};	/**< external weathervane library, used to implement a yaw control law that turns the vehicle nose into the wind */
-
+	WeatherVane _weathervane{this}; /**< weathervane library, used to implement a yaw control law that turns the vehicle nose into the wind */
 
 	void _limitYawRate(); /**< Limits the rate of change of the yaw setpoint. */
 	bool _evaluateTriplets(); /**< Checks and sets triplets. */

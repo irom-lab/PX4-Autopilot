@@ -199,50 +199,50 @@ Mavlink::mavlink_update_parameters()
 	}
 }
 
-void
-Mavlink::set_channel()
+bool Mavlink::set_channel()
 {
 	/* set channel according to instance id */
 	switch (_instance_id) {
 	case 0:
 		_channel = MAVLINK_COMM_0;
-		break;
+		return true;
 
 	case 1:
 		_channel = MAVLINK_COMM_1;
-		break;
+		return true;
 
 	case 2:
 		_channel = MAVLINK_COMM_2;
-		break;
+		return true;
 
 	case 3:
 		_channel = MAVLINK_COMM_3;
-		break;
+		return true;
 #ifdef MAVLINK_COMM_4
 
 	case 4:
 		_channel = MAVLINK_COMM_4;
-		break;
+		return true;
 #endif
 #ifdef MAVLINK_COMM_5
 
 	case 5:
 		_channel = MAVLINK_COMM_5;
-		break;
+		return true;
 #endif
 #ifdef MAVLINK_COMM_6
 
 	case 6:
 		_channel = MAVLINK_COMM_6;
-		break;
+		return true;
 #endif
 
 	default:
-		PX4_WARN("instance ID %d is out of range", _instance_id);
-		px4_task_exit(1);
+		PX4_ERR("instance ID %d is out of range", _instance_id);
 		break;
 	}
+
+	return false;
 }
 
 bool
@@ -776,7 +776,7 @@ void Mavlink::send_finish()
 # endif // CONFIG_NET
 
 		if ((_mode != MAVLINK_MODE_ONBOARD) && broadcast_enabled() &&
-		    (!get_client_source_initialized() || !is_connected())) {
+		    (!get_client_source_initialized() || !is_gcs_connected())) {
 
 			if (!_broadcast_address_found) {
 				find_broadcast_address();
@@ -1056,6 +1056,7 @@ Mavlink::send_autopilot_capabilities()
 		msg.capabilities |= MAV_PROTOCOL_CAPABILITY_MISSION_INT;
 		msg.capabilities |= MAV_PROTOCOL_CAPABILITY_PARAM_FLOAT;
 		msg.capabilities |= MAV_PROTOCOL_CAPABILITY_COMMAND_INT;
+		msg.capabilities |= MAV_PROTOCOL_CAPABILITY_PARAM_ENCODE_BYTEWISE;
 		msg.capabilities |= MAV_PROTOCOL_CAPABILITY_FTP;
 		msg.capabilities |= MAV_PROTOCOL_CAPABILITY_SET_ATTITUDE_TARGET;
 		msg.capabilities |= MAV_PROTOCOL_CAPABILITY_SET_POSITION_TARGET_LOCAL_NED;
@@ -1333,18 +1334,20 @@ MavlinkShell *
 Mavlink::get_shell()
 {
 	if (!_mavlink_shell) {
-		_mavlink_shell = new MavlinkShell();
+		MavlinkShell *shell = new MavlinkShell();
 
-		if (!_mavlink_shell) {
+		if (!shell) {
 			PX4_ERR("Failed to allocate a shell");
 
 		} else {
-			int ret = _mavlink_shell->start();
+			int ret = shell->start();
 
-			if (ret != 0) {
+			if (ret == 0) {
+				_mavlink_shell = shell;
+
+			} else {
 				PX4_ERR("Failed to start shell (%i)", ret);
-				delete _mavlink_shell;
-				_mavlink_shell = nullptr;
+				delete shell;
 			}
 		}
 	}
@@ -2132,18 +2135,21 @@ Mavlink::task_main(int argc, char *argv[])
 
 #endif // MAVLINK_UDP
 
-	if (!set_instance_id()) {
-		PX4_ERR("no instances available");
-		return PX4_ERROR;
+	if (set_instance_id()) {
+		if (!set_channel()) {
+			PX4_ERR("set channel failed");
+			return PX4_ERROR;
+		}
 
-	} else {
 		// set thread name
 		char thread_name[13];
 		snprintf(thread_name, sizeof(thread_name), "mavlink_if%d", get_instance_id());
 		px4_prctl(PR_SET_NAME, thread_name, px4_getpid());
-	}
 
-	set_channel();
+	} else {
+		PX4_ERR("no instances available");
+		return PX4_ERROR;
+	}
 
 	/* initialize send mutex */
 	pthread_mutex_init(&_send_mutex, nullptr);
@@ -2157,7 +2163,7 @@ Mavlink::task_main(int argc, char *argv[])
 		 */
 		if (OK != message_buffer_init(2 * sizeof(mavlink_message_t) + 1)) {
 			PX4_ERR("msg buf alloc fail");
-			return 1;
+			return PX4_ERROR;
 		}
 
 		/* initialize message buffer mutex */
@@ -2235,6 +2241,8 @@ Mavlink::task_main(int argc, char *argv[])
 
 	_mavlink_start_time = hrt_absolute_time();
 
+	_task_running.store(true);
+
 	while (!should_exit()) {
 		/* main loop */
 		px4_usleep(_main_loop_delay);
@@ -2259,14 +2267,6 @@ Mavlink::task_main(int argc, char *argv[])
 
 			// update parameters from storage
 			mavlink_update_parameters();
-
-#if defined(CONFIG_NET)
-
-			if (!multicast_enabled()) {
-				_src_addr_initialized = false;
-			}
-
-#endif // CONFIG_NET
 		}
 
 		configure_sik_radio();
@@ -2394,6 +2394,30 @@ Mavlink::task_main(int argc, char *argv[])
 			}
 		}
 
+		// For legacy gimbals using the mavlink gimbal v1 protocol, we need to send out commands.
+		// We don't care about acks for these though.
+		if (_gimbal_v1_command_sub.updated()) {
+			vehicle_command_s cmd;
+			_gimbal_v1_command_sub.copy(&cmd);
+
+			// FIXME: filter for target system/component
+
+			mavlink_command_long_t msg{};
+			msg.param1 = cmd.param1;
+			msg.param2 = cmd.param2;
+			msg.param3 = cmd.param3;
+			msg.param4 = cmd.param4;
+			msg.param5 = cmd.param5;
+			msg.param6 = cmd.param6;
+			msg.param7 = cmd.param7;
+			msg.command = cmd.command;
+			msg.target_system = cmd.target_system;
+			msg.target_component = cmd.target_component;
+			msg.confirmation = 0;
+
+			mavlink_msg_command_long_send_struct(get_channel(), &msg);
+		}
+
 		/* check for shell output */
 		if (_mavlink_shell && _mavlink_shell->available() > 0) {
 			if (get_free_tx_buf() >= MAVLINK_MSG_ID_SERIAL_CONTROL_LEN + MAVLINK_NUM_NON_PAYLOAD_BYTES) {
@@ -2403,6 +2427,8 @@ Mavlink::task_main(int argc, char *argv[])
 				msg.timeout = 0;
 				msg.device = SERIAL_CONTROL_DEV_SHELL;
 				msg.count = _mavlink_shell->read(msg.data, sizeof(msg.data));
+				msg.target_system = _mavlink_shell->targetSysid();
+				msg.target_component = _mavlink_shell->targetCompid();
 				mavlink_msg_serial_control_send_struct(get_channel(), &msg);
 			}
 		}
@@ -2587,6 +2613,8 @@ Mavlink::task_main(int argc, char *argv[])
 
 	PX4_INFO("exiting channel %i", (int)_channel);
 
+	_task_running.store(false);
+
 	return OK;
 }
 
@@ -2746,10 +2774,12 @@ int Mavlink::start_helper(int argc, char *argv[])
 		PX4_ERR("OUT OF MEM");
 
 	} else {
-		/* this will actually only return once MAVLink exits */
-		instance->_task_running.store(true);
+		/* this will actually only return once MAVLink exits, unless there's a startup error */
 		res = instance->task_main(argc, argv);
-		instance->_task_running.store(false);
+
+		if (res != PX4_OK) {
+			delete instance;
+		}
 	}
 
 	return res;

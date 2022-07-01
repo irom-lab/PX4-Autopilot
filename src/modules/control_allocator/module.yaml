@@ -1,4 +1,4 @@
-__max_num_mc_motors: &max_num_mc_motors 8
+__max_num_mc_motors: &max_num_mc_motors 12
 __max_num_servos: &max_num_servos 8
 __max_num_tilts: &max_num_tilts 4
 
@@ -27,6 +27,7 @@ parameters:
                 7: Motors (6DOF)
                 8: Multirotor with Tilt
                 9: Custom
+                10: Helicopter
             default: 0
 
         CA_METHOD:
@@ -58,6 +59,10 @@ parameters:
                 5: Motor 6
                 6: Motor 7
                 7: Motor 8
+                8: Motor 9
+                9: Motor 10
+                10: Motor 11
+                11: Motor 12
             default: 0
         CA_R${i}_SLEW:
             description:
@@ -111,6 +116,10 @@ parameters:
                 6: '6'
                 7: '7'
                 8: '8'
+                9: '9'
+                10: '10'
+                11: '11'
+                12: '12'
             default: 0
         CA_ROTOR${i}_PX:
             description:
@@ -370,18 +379,75 @@ parameters:
             instance_start: 0
             default: 0
 
-        # Standard VTOL
-        CA_STDVTOL_N_P:
+        # helicopter
+        CA_SP0_COUNT:
             description:
-                short: Number of fixed wing (pusher/puller) motors
+                short: Number of swash plates servos
             type: enum
             values:
-                1: '1'
-                2: '2'
                 3: '3'
                 4: '4'
-            default: 1
+            default: 3
+        CA_SP0_ANG${i}:
+            description:
+                short: Angle for swash plate servo ${i}
+            type: float
+            decimal: 0
+            increment: 10
+            unit: deg
+            num_instances: 4
+            min: 0
+            max: 360
+            default: [0, 140, 220, 0]
+        CA_SP0_ARM_L${i}:
+            description:
+                short: Arm length for swash plate servo ${i}
+                long: |
+                  This is relative to the other arm lengths.
+            type: float
+            decimal: 3
+            increment: 0.1
+            num_instances: 4
+            min: 0
+            max: 10
+            default: 1.0
+        CA_HELI_THR_C${i}:
+            description:
+                short: Throttle curve at position ${i}
+                long: |
+                  Defines the output throttle at the interval position ${i}.
+            type: float
+            decimal: 3
+            increment: 0.1
+            num_instances: 5
+            min: 0
+            max: 1
+            default: [0, 0.3, 0.6, 0.8, 1]
+        CA_HELI_PITCH_C${i}:
+            description:
+                short: Collective pitch curve at position ${i}
+                long: |
+                  Defines the collective pitch at the interval position ${i} for a given thrust setpoint.
+            type: float
+            decimal: 3
+            increment: 0.1
+            num_instances: 5
+            min: 0
+            max: 1
+            default: [0.05, 0.15, 0.25, 0.35, 0.45]
 
+        # Others
+        CA_FAILURE_MODE:
+            description:
+                short: Motor failure handling mode
+                long: |
+                    This is used to specify how to handle motor failures
+                    reported by failure detector.
+            type: enum
+            values:
+                0: Ignore
+                1: Remove first failed motor from effectiveness
+            default: 0
 
 # Mixer
 mixer:
@@ -478,6 +544,7 @@ mixer:
         types:
             0: # Multirotor
                 type: 'multirotor'
+                title: 'Multirotor'
                 actuators:
                   - actuator_type: 'motor'
                     count: 'CA_ROTOR_COUNT'
@@ -489,8 +556,21 @@ mixer:
                             label: 'Direction CCW'
                             function: 'spin-dir'
                             show_as: 'true-if-positive'
+                          - name: 'CA_ROTOR${i}_AX'
+                            label: 'Axis X'
+                            function: 'axisx'
+                            advanced: true
+                          - name: 'CA_ROTOR${i}_AY'
+                            label: 'Axis Y'
+                            function: 'axisy'
+                            advanced: true
+                          - name: 'CA_ROTOR${i}_AZ'
+                            label: 'Axis Z'
+                            function: 'axisz'
+                            advanced: true
 
             1: # Fixed Wing
+                title: 'Fixed Wing'
                 actuators:
                   - actuator_type: 'motor'
                     group_label: 'Motors'
@@ -520,9 +600,10 @@ mixer:
                             label: 'Trim'
 
             2: # Standard VTOL
+                title: 'Standard VTOL'
                 actuators:
                   - actuator_type: 'motor'
-                    group_label: 'MC Motors'
+                    group_label: 'Motors'
                     count: 'CA_ROTOR_COUNT'
                     per_item_parameters:
                         standard:
@@ -532,10 +613,15 @@ mixer:
                             label: 'Direction CCW'
                             function: 'spin-dir'
                             show_as: 'true-if-positive'
-                  - actuator_type: 'motor'
-                    group_label: 'FW Motors'
-                    count: 'CA_STDVTOL_N_P'
-                    item_label_prefix: 'FW Motor ${i}'
+                          - name: 'CA_ROTOR${i}_AX'
+                            label: 'Axis X'
+                            function: 'axisx'
+                          - name: 'CA_ROTOR${i}_AY'
+                            label: 'Axis Y'
+                            function: 'axisy'
+                          - name: 'CA_ROTOR${i}_AZ'
+                            label: 'Axis Z'
+                            function: 'axisz'
                   - actuator_type: 'servo'
                     group_label: 'Control Surfaces'
                     count: 'CA_SV_CS_COUNT'
@@ -561,6 +647,7 @@ mixer:
                         name: VT_ELEV_MC_LOCK
 
             3: # Tiltrotor VTOL
+                title: 'Tiltrotor VTOL'
                 actuators:
                   - actuator_type: 'motor'
                     group_label: 'MC Motors'
@@ -615,6 +702,7 @@ mixer:
                             label: 'Use for Control'
 
             4: # Tailsitter VTOL
+                title: 'Tailsitter VTOL'
                 actuators:
                   - actuator_type: 'motor'
                     group_label: 'MC Motors'
@@ -653,6 +741,7 @@ mixer:
                         name: VT_ELEV_MC_LOCK
 
             5: # Rover (Ackermann)
+                title: 'Rover (Ackermann)'
                 actuators:
                   - actuator_type: 'motor'
                     instances:
@@ -664,6 +753,7 @@ mixer:
                         position: [ 1., 0, 0 ]
 
             6: # Rover (Differential)
+                title: 'Rover (Differential)'
                 actuators:
                   - actuator_type: 'motor'
                     instances:
@@ -693,6 +783,7 @@ mixer:
                             label: "Moment\nCoefficient"
 
             8: # Multirotor with Tilt
+                title: 'Multirotor with Tilt'
                 actuators:
                   - actuator_type: 'motor'
                     count: 'CA_ROTOR_COUNT'
@@ -758,3 +849,20 @@ mixer:
                           - name: 'CA_SV_CS${i}_TRIM'
                             label: 'Trim'
 
+            10: # Helicopter
+                actuators:
+                  - actuator_type: 'motor'
+                    count: 1
+                    item_label_prefix: ['Rotor']
+                  - actuator_type: 'servo'
+                    item_label_prefix: ['Yaw tail servo']
+                    count: 1
+                  - actuator_type: 'servo'
+                    group_label: 'Swash plate servos'
+                    count: 'CA_SP0_COUNT'
+                    per_item_parameters:
+                        extra:
+                          - name: 'CA_SP0_ANG${i}'
+                            label: 'Angle'
+                          - name: 'CA_SP0_ARM_L${i}'
+                            label: 'Arm Length (relative)'

@@ -63,6 +63,7 @@
 #include "common.h"
 #include "RingBuffer.h"
 #include "imu_down_sampler.hpp"
+#include "range_finder_consistency_check.hpp"
 #include "sensor_range_finder.hpp"
 #include "utils.hpp"
 
@@ -77,24 +78,13 @@ class EstimatorInterface
 {
 public:
 	// ask estimator for sensor data collection decision and do any preprocessing if required, returns true if not defined
-	virtual bool collect_gps(const gps_message &gps) = 0;
+	virtual bool collect_gps(const gpsMessage &gps) = 0;
 
 	void setIMUData(const imuSample &imu_sample);
 
-	/*
-	Returns  following IMU vibration metrics in the following array locations
-	0 : Gyro delta angle coning metric = filtered length of (delta_angle x prev_delta_angle)
-	1 : Gyro high frequency vibe = filtered length of (delta_angle - prev_delta_angle)
-	2 : Accel high frequency vibe = filtered length of (delta_velocity - prev_delta_velocity)
-	*/
-	const Vector3f &getImuVibrationMetrics() const { return _vibe_metrics; }
-	void setDeltaAngleConingMetric(float delta_angle_coning_metric) { _vibe_metrics(0) = delta_angle_coning_metric; }
-	void setDeltaAngleHighFrequencyVibrationMetric(float delta_angle_vibration_metric) { _vibe_metrics(1) = delta_angle_vibration_metric; }
-	void setDeltaVelocityHighFrequencyVibrationMetric(float delta_velocity_vibration_metric) { _vibe_metrics(2) = delta_velocity_vibration_metric; }
-
 	void setMagData(const magSample &mag_sample);
 
-	void setGpsData(const gps_message &gps);
+	void setGpsData(const gpsMessage &gps);
 
 	void setBaroData(const baroSample &baro_sample);
 
@@ -127,6 +117,8 @@ public:
 		_control_status.flags.in_air = in_air;
 	}
 
+	void set_vehicle_at_rest(bool at_rest) { _control_status.flags.vehicle_at_rest = at_rest; }
+
 	// return true if the attitude is usable
 	bool attitude_valid() const { return PX4_ISFINITE(_output_new.quat_nominal(0)) && _control_status.flags.tilt_align; }
 
@@ -145,9 +137,9 @@ public:
 	// set flag if static pressure rise due to ground effect is expected
 	// use _params.gnd_effect_deadzone to adjust for expected rise in static pressure
 	// flag will clear after GNDEFFECT_TIMEOUT uSec
-	void set_gnd_effect_flag(bool gnd_effect)
+	void set_gnd_effect()
 	{
-		_control_status.flags.gnd_effect = gnd_effect;
+		_control_status.flags.gnd_effect = true;
 		_time_last_gnd_effect_on = _time_last_imu;
 	}
 
@@ -189,9 +181,6 @@ public:
 
 	int getNumberOfActiveHorizontalAidingSources() const;
 
-	// return true if the EKF is dead reckoning the position using inertial data only
-	bool inertial_dead_reckoning() const { return _is_dead_reckoning; }
-
 	const matrix::Quatf &getQuaternion() const { return _output_new.quat_nominal; }
 
 	// get the velocity of the body frame origin in local NED earth frame
@@ -217,7 +206,7 @@ public:
 	// At the next startup, set param.mag_declination_deg to the value saved
 	bool get_mag_decl_deg(float *val) const
 	{
-		if (_NED_origin_initialised && (_params.mag_declination_source & MASK_SAVE_GEO_DECL)) {
+		if (_NED_origin_initialised && (_params.mag_declination_source & GeoDeclinationMask::SAVE_GEO_DECL)) {
 			*val = math::degrees(_mag_declination_gps);
 			return true;
 
@@ -248,24 +237,25 @@ public:
 	const decltype(information_event_status_u::flags) &information_event_flags() const { return _information_events.flags; }
 	void clear_information_events() { _information_events.value = 0; }
 
-	bool isVehicleAtRest() const { return _control_status.flags.vehicle_at_rest; }
-
 	// Getter for the average imu update period in s
 	float get_dt_imu_avg() const { return _dt_imu_avg; }
 
 	// Getter for the average EKF update period in s
 	float get_dt_ekf_avg() const { return _dt_ekf_avg; }
 
-	// Getter for the imu sample on the delayed time horizon
+	// Getters for samples on the delayed time horizon
 	const imuSample &get_imu_sample_delayed() const { return _imu_sample_delayed; }
-
-	// Getter for the baro sample on the delayed time horizon
 	const baroSample &get_baro_sample_delayed() const { return _baro_sample_delayed; }
+	const gpsSample &get_gps_sample_delayed() const { return _gps_sample_delayed; }
 
 	const bool &global_origin_valid() const { return _NED_origin_initialised; }
 	const MapProjection &global_origin() const { return _pos_ref; }
 
 	void print_status();
+
+	float gps_horizontal_position_drift_rate_m_s() const { return _gps_horizontal_position_drift_rate_m_s; }
+	float gps_vertical_position_drift_rate_m_s() const { return _gps_vertical_position_drift_rate_m_s; }
+	float gps_filtered_horizontal_velocity_m_s() const { return _gps_filtered_horizontal_velocity_m_s; }
 
 protected:
 
@@ -299,23 +289,23 @@ protected:
 	imuSample _imu_sample_delayed{};	// captures the imu sample on the delayed time horizon
 
 	// measurement samples capturing measurements on the delayed time horizon
-	magSample _mag_sample_delayed{};
 	baroSample _baro_sample_delayed{};
 	gpsSample _gps_sample_delayed{};
 	sensor::SensorRangeFinder _range_sensor{};
 	airspeedSample _airspeed_sample_delayed{};
 	flowSample _flow_sample_delayed{};
 	extVisionSample _ev_sample_delayed{};
-	dragSample _drag_sample_delayed{};
+	extVisionSample _ev_sample_delayed_prev{};
 	dragSample _drag_down_sampled{};	// down sampled drag specific force data (filter prediction rate -> observation rate)
-	auxVelSample _auxvel_sample_delayed{};
+
+	RangeFinderConsistencyCheck _rng_consistency_check;
 
 	float _air_density{CONSTANTS_AIR_DENSITY_SEA_LEVEL_15C};		// air density (kg/m**3)
 
 	// Sensor limitations
-	float _flow_max_rate{0.0f}; ///< maximum angular flow rate that the optical flow sensor can measure (rad/s)
+	float _flow_max_rate{1.0f}; ///< maximum angular flow rate that the optical flow sensor can measure (rad/s)
 	float _flow_min_distance{0.0f};	///< minimum distance that the optical flow sensor can operate at (m)
-	float _flow_max_distance{0.0f};	///< maximum distance that the optical flow sensor can operate at (m)
+	float _flow_max_distance{10.f};	///< maximum distance that the optical flow sensor can operate at (m)
 
 	// Output Predictor
 	outputSample _output_new{};		// filter output on the non-delayed time horizon
@@ -339,15 +329,11 @@ protected:
 
 	// innovation consistency check monitoring ratios
 	float _yaw_test_ratio{};		// yaw innovation consistency check ratio
-	AlphaFilter<float>_yaw_signed_test_ratio_lpf{0.1f}; // average signed test ratio used to detect a bias in the state
+	AlphaFilter<float> _yaw_signed_test_ratio_lpf{0.1f}; // average signed test ratio used to detect a bias in the state
 	Vector3f _mag_test_ratio{};		// magnetometer XYZ innovation consistency check ratios
-	Vector2f _gps_vel_test_ratio{};		// GPS velocity innovation consistency check ratios
-	Vector2f _gps_pos_test_ratio{};		// GPS position innovation consistency check ratios
 	Vector2f _ev_vel_test_ratio{};		// EV velocity innovation consistency check ratios
 	Vector2f _ev_pos_test_ratio{};		// EV position innovation consistency check ratios
 	Vector2f _aux_vel_test_ratio{};		// Auxiliary horizontal velocity innovation consistency check ratio
-	float _baro_hgt_test_ratio{};	// baro height innovation consistency check ratios
-	float _rng_hgt_test_ratio{};		// range finder height innovation consistency check ratios
 	float _optflow_test_ratio{};		// Optical flow innovation consistency check ratio
 	float _tas_test_ratio{};		// tas innovation consistency check ratio
 	float _hagl_test_ratio{};		// height above terrain measurement innovation consistency check ratio
@@ -355,18 +341,14 @@ protected:
 	Vector2f _drag_test_ratio{};		// drag innovation consistency check ratio
 	innovation_fault_status_u _innov_check_fail_status{};
 
-	bool _is_dead_reckoning{false};		// true if we are no longer fusing measurements that constrain horizontal velocity drift
 	bool _deadreckon_time_exceeded{true};	// true if the horizontal nav solution has been deadreckoning for too long and is invalid
-	bool _is_wind_dead_reckoning{false};	// true if we are navigationg reliant on wind relative measurements
 
-	float _gps_drift_metrics[3] {};	// Array containing GPS drift metrics
-					// [0] Horizontal position drift rate (m/s)
-					// [1] Vertical position drift rate (m/s)
-					// [2] Filtered horizontal velocity (m/s)
-	uint64_t _time_last_move_detect_us{0};	// timestamp of last movement detection event in microseconds
+	float _gps_horizontal_position_drift_rate_m_s{NAN}; // Horizontal position drift rate (m/s)
+	float _gps_vertical_position_drift_rate_m_s{NAN};   // Vertical position drift rate (m/s)
+	float _gps_filtered_horizontal_velocity_m_s{NAN};   // Filtered horizontal velocity (m/s)
+
 	uint64_t _time_last_on_ground_us{0};	///< last time we were on the ground (uSec)
 	uint64_t _time_last_in_air{0};		///< last time we were in air (uSec)
-	bool _gps_drift_updated{false};	// true when _gps_drift_metrics has been updated and is ready for retrieval
 
 	// data buffer instances
 	RingBuffer<imuSample> _imu_buffer{12};           // buffer length 12 with default parameters
@@ -422,26 +404,14 @@ private:
 
 	inline void setDragData(const imuSample &imu);
 
-	inline void computeVibrationMetric(const imuSample &imu);
-	inline bool checkIfVehicleAtRest(float dt, const imuSample &imu);
-
 	void printBufferAllocationFailed(const char *buffer_name);
 
 	ImuDownSampler _imu_down_sampler{_params.filter_update_interval_us};
 
 	unsigned _min_obs_interval_us{0}; // minimum time interval between observations that will guarantee data is not lost (usec)
 
-	// IMU vibration and movement monitoring
-	Vector3f _vibe_metrics{};	// IMU vibration metrics
-					// [0] Level of coning vibration in the IMU delta angles (rad^2)
-					// [1] high frequency vibration level in the IMU delta angle data (rad)
-					// [2] high frequency vibration level in the IMU delta velocity data (m/s)
-
 	// Used by the multi-rotor specific drag force fusion
 	uint8_t _drag_sample_count{0};	// number of drag specific force samples assumulated at the filter prediction rate
 	float _drag_sample_time_dt{0.0f};	// time integral across all samples used to form _drag_down_sampled (sec)
-
-	// observation buffer final allocation failed
-	uint64_t _last_allocation_fail_print{0};
 };
 #endif // !EKF_ESTIMATOR_INTERFACE_H

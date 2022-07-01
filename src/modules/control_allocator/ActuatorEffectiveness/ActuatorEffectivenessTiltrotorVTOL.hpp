@@ -55,7 +55,7 @@ public:
 	ActuatorEffectivenessTiltrotorVTOL(ModuleParams *parent);
 	virtual ~ActuatorEffectivenessTiltrotorVTOL() = default;
 
-	bool getEffectivenessMatrix(Configuration &configuration, bool force) override;
+	bool getEffectivenessMatrix(Configuration &configuration, EffectivenessUpdateReason external_update) override;
 
 	int numMatrices() const override { return 2; }
 
@@ -81,7 +81,7 @@ public:
 
 	uint32_t getStoppedMotors() const override { return _stopped_motors; }
 protected:
-	bool _updated{true};
+	bool _combined_tilt_updated{true};
 	ActuatorEffectivenessRotors _mc_rotors;
 	ActuatorEffectivenessControlSurfaces _control_surfaces;
 	ActuatorEffectivenessTilts _tilts;
@@ -95,4 +95,5 @@ protected:
 	float _last_tilt_control{NAN};
 
 	uORB::Subscription _actuator_controls_1_sub{ORB_ID(actuator_controls_1)};
+	uORB::Subscription _actuator_controls_0_sub{ORB_ID(actuator_controls_0)};
 };

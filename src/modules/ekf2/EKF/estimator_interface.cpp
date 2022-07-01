@@ -75,9 +75,6 @@ void EstimatorInterface::setIMUData(const imuSample &imu_sample)
 
 	_newest_high_rate_imu_sample = imu_sample;
 
-	// Do not change order of computeVibrationMetric and checkIfVehicleAtRest
-	_control_status.flags.vehicle_at_rest = checkIfVehicleAtRest(dt, imu_sample);
-
 	_imu_updated = _imu_down_sampler.update(imu_sample);
 
 	// accumulate and down-sample imu data and push to the buffer when new downsampled data becomes available
@@ -95,25 +92,6 @@ void EstimatorInterface::setIMUData(const imuSample &imu_sample)
 		setDragData(imu_sample);
 	}
 }
-
-bool EstimatorInterface::checkIfVehicleAtRest(float dt, const imuSample &imu)
-{
-	// detect if the vehicle is not moving when on ground
-	if (!_control_status.flags.in_air) {
-		if (((_vibe_metrics(1) * 4.0e4f > _params.is_moving_scaler) || (_vibe_metrics(2) * 2.1e2f > _params.is_moving_scaler))
-		    && ((imu.delta_ang.norm() / dt) > 0.05f * _params.is_moving_scaler)) {
-
-			_time_last_move_detect_us = imu.time_us;
-		}
-
-		return ((imu.time_us - _time_last_move_detect_us) > (uint64_t)1E6);
-
-	} else {
-		_time_last_move_detect_us = imu.time_us;
-		return false;
-	}
-}
-
 
 void EstimatorInterface::setMagData(const magSample &mag_sample)
 {
@@ -151,7 +129,7 @@ void EstimatorInterface::setMagData(const magSample &mag_sample)
 	}
 }
 
-void EstimatorInterface::setGpsData(const gps_message &gps)
+void EstimatorInterface::setGpsData(const gpsMessage &gps)
 {
 	if (!_initialised) {
 		return;
@@ -404,7 +382,7 @@ void EstimatorInterface::setDragData(const imuSample &imu)
 {
 	// down-sample the drag specific force data by accumulating and calculating the mean when
 	// sufficient samples have been collected
-	if ((_params.fusion_mode & MASK_USE_DRAG)) {
+	if ((_params.fusion_mode & SensorFusionMask::USE_DRAG)) {
 
 		// Allocate the required buffer size if not previously done
 		if (_drag_buffer == nullptr) {
@@ -469,24 +447,24 @@ bool EstimatorInterface::initialise_interface(uint64_t timestamp)
 	}
 
 	// mag mode
-	if (_params.mag_fusion_type != MAG_FUSE_TYPE_NONE) {
+	if (_params.mag_fusion_type != MagFuseType::NONE) {
 		max_time_delay_ms = math::max(_params.mag_delay_ms, max_time_delay_ms);
 	}
 
 	// range aid or range height
-	if (_params.range_aid || (_params.vdist_sensor_type == VDIST_SENSOR_RANGE)) {
+	if (_params.range_aid || (_params.vdist_sensor_type == VerticalHeightSensor::RANGE)) {
 		max_time_delay_ms = math::max(_params.range_delay_ms, max_time_delay_ms);
 	}
 
-	if (_params.fusion_mode & MASK_USE_GPS) {
+	if (_params.fusion_mode & SensorFusionMask::USE_GPS) {
 		max_time_delay_ms = math::max(_params.gps_delay_ms, max_time_delay_ms);
 	}
 
-	if (_params.fusion_mode & MASK_USE_OF) {
+	if (_params.fusion_mode & SensorFusionMask::USE_OPT_FLOW) {
 		max_time_delay_ms = math::max(_params.flow_delay_ms, max_time_delay_ms);
 	}
 
-	if (_params.fusion_mode & (MASK_USE_EVPOS | MASK_USE_EVYAW | MASK_USE_EVVEL)) {
+	if (_params.fusion_mode & (SensorFusionMask::USE_EXT_VIS_POS | SensorFusionMask::USE_EXT_VIS_YAW | SensorFusionMask::USE_EXT_VIS_VEL)) {
 		max_time_delay_ms = math::max(_params.ev_delay_ms, max_time_delay_ms);
 	}
 

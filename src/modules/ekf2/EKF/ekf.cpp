@@ -75,6 +75,9 @@ void Ekf::reset()
 	_control_status.value = 0;
 	_control_status_prev.value = 0;
 
+	_control_status.flags.in_air = true;
+	_control_status_prev.flags.in_air = true;
+
 	_ang_rate_delayed_raw.zero();
 
 	_fault_status.value = 0;
@@ -110,9 +113,6 @@ bool Ekf::update()
 		runTerrainEstimator();
 
 		updated = true;
-
-		// run EKF-GSF yaw estimator
-		runYawEKFGSF();
 	}
 
 	// the output observer always runs
@@ -143,16 +143,20 @@ bool Ekf::initialiseFilter()
 	}
 
 	// Sum the magnetometer measurements
-	if (_mag_buffer && _mag_buffer->pop_first_older_than(_imu_sample_delayed.time_us, &_mag_sample_delayed)) {
-		if (_mag_sample_delayed.time_us != 0) {
-			if (_mag_counter == 0) {
-				_mag_lpf.reset(_mag_sample_delayed.mag);
+	if (_mag_buffer) {
+		magSample mag_sample;
 
-			} else {
-				_mag_lpf.update(_mag_sample_delayed.mag);
+		if (_mag_buffer->pop_first_older_than(_imu_sample_delayed.time_us, &mag_sample)) {
+			if (mag_sample.time_us != 0) {
+				if (_mag_counter == 0) {
+					_mag_lpf.reset(mag_sample.mag);
+
+				} else {
+					_mag_lpf.update(mag_sample.mag);
+				}
+
+				_mag_counter++;
 			}
-
-			_mag_counter++;
 		}
 	}
 
@@ -170,7 +174,7 @@ bool Ekf::initialiseFilter()
 		}
 	}
 
-	if (_params.mag_fusion_type <= MAG_FUSE_TYPE_3D) {
+	if (_params.mag_fusion_type <= MagFuseType::MAG_3D) {
 		if (_mag_counter < _obs_buffer_length) {
 			// not enough mag samples accumulated
 			return false;
@@ -192,24 +196,23 @@ bool Ekf::initialiseFilter()
 	// calculate the initial magnetic field and yaw alignment
 	// but do not mark the yaw alignement complete as it needs to be
 	// reset once the leveling phase is done
-	resetMagHeading(_mag_lpf.getState(), false, false);
+	resetMagHeading(false, false);
 
 	// initialise the state covariance matrix now we have starting values for all the states
 	initialiseCovariance();
 
 	// update the yaw angle variance using the variance of the measurement
-	if (_params.mag_fusion_type <= MAG_FUSE_TYPE_3D) {
+	if (_params.mag_fusion_type <= MagFuseType::MAG_3D) {
 		// using magnetic heading tuning parameter
 		increaseQuatYawErrVariance(sq(fmaxf(_params.mag_heading_noise, 1.0e-2f)));
 	}
 
-	// try to initialise the terrain estimator
-	_terrain_initialised = initHagl();
+	// Initialise the terrain estimator
+	initHagl();
 
 	// reset the essential fusion timeout counters
 	_time_last_hgt_fuse = _time_last_imu;
 	_time_last_hor_pos_fuse = _time_last_imu;
-	_time_last_delpos_fuse = _time_last_imu;
 	_time_last_hor_vel_fuse = _time_last_imu;
 	_time_last_hagl_fuse = _time_last_imu;
 	_time_last_flow_terrain_fuse = _time_last_imu;
@@ -255,7 +258,6 @@ void Ekf::predictState()
 
 	// rotate the previous quaternion by the delta quaternion using a quaternion multiplication
 	_state.quat_nominal = (_state.quat_nominal * dq).normalized();
-
 	_R_to_earth = Dcmf(_state.quat_nominal);
 
 	// Calculate an earth frame delta velocity
